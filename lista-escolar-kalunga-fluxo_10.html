@@ -673,17 +673,20 @@ const ROWS = [
  {id:'cad', q:'2 Cadernos 10 matérias', qty:2, busca:'caderno universitario 10 materias', sel:'141594', pref:['141518','141534','141543','141594','141526','141515','136662']},
  {id:'hid', q:'Caneta hidrográfica',   qty:1, busca:'caneta hidrografica', sel:'189191', pref:['189192','191010','189191','186117','189116','189181']},
  {id:'lap', q:'Lápis colorido',        qty:1, busca:'lapis de cor', sel:'389709', pref:['389709','389505','389072','389706','389058','389500']},
-].map(r=>({...r, opts:CATALOGO[r.id].map(x=>mkOpt(r.id,x))}));
+].map(r=>({...r, picks:{[r.sel]:r.qty}, order:[r.sel], opts:CATALOGO[r.id].map(x=>mkOpt(r.id,x))}));
+/* picks = produtos escolhidos no item {código: quantidade} — pode ter mais de um */
 const FRETE_GRATIS = 250; // valor mínimo para frete grátis (ajustar para a regra real)
 const R = v => v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const byId = id => ROWS.find(r=>r.id===id);
-const selOpt = r => r.opts.find(o=>o.id===r.sel);
+const picked = r => r.order.filter(id=>id in r.picks).map(id=>[r.opts.find(o=>o.id===id), r.picks[id]]); // ordem de escolha
+const inKit = (r,o) => o.id in r.picks;
+const kitQty = r => Object.values(r.picks).reduce((a,b)=>a+b,0);
 
 const starsHTML = o => `<div class="stars ${o.reviews?'':'none'}">★★★★★<span class="cnt">(${o.reviews})</span></div>`;
 function card(r,o){
-  const on = r.sel===o.id;
+  const on = inKit(r,o);
   return `<div class="p-card ${on?'sel':''}" role="button" tabindex="0" aria-label="Ver detalhes: ${o.name.replace(/"/g,'')}" data-row="${r.id}" data-opt="${o.id}">
-    ${on?'<span class="p-seltag"><i class="bi bi-check-lg"></i>Escolhido</span>':''}
+    ${on?`<span class="p-seltag"><i class="bi bi-check-lg"></i>No kit · ${r.picks[o.id]}</span>`:''}
     <div class="p-img">${pic(o)}</div>
     <div class="p-name">${o.name}</div>
     ${starsHTML(o)}
@@ -697,15 +700,14 @@ function card(r,o){
 const optById = (r,id) => r.opts.find(o=>o.id===id);
 function visible(r){
   let v = r.pref.slice(0,6).map(id=>optById(r,id));
-  const s = selOpt(r);
-  if(s && !v.includes(s)) v = [s, ...v.slice(0,5)];
-  return v;
+  const extra = picked(r).map(p=>p[0]).filter(o=>!v.includes(o));
+  return [...extra, ...v].slice(0,6);
 }
 
 /* ---------- DETALHE DO PRODUTO ---------- */
 let DET = null; // {row, list:[ids], idx, where:'modal'|'panel'}
 function detailHTML(r,o){
-  const on = r.sel===o.id, n = DET.list.length;
+  const on = inKit(r,o), qv = on ? r.picks[o.id] : DET.q, qa = on ? `data-inc="${r.id}" data-opt="${o.id}"` : 'data-dq="1"', qd = on ? `data-dec="${r.id}" data-opt="${o.id}"` : 'data-dq="-1"', outros = kitQty(r) - (on ? r.picks[o.id] : 0);
   const paras = (o.desc||'').split('\n').map(t=>t.replace(/^Características do Produto\s*/i,'').trim()).filter(t=>t && !/:$/.test(t));
   return `
     <div class="row g-4">
@@ -722,11 +724,11 @@ function detailHTML(r,o){
         <div class="pd-buybox">
           <div class="d-flex align-items-center gap-3 mb-3">
             <span class="label-k">Quantidade</span>
-            <div class="qty-k"><span class="v">${r.qty}</span><span class="arr"><button data-inc="${r.id}" aria-label="Aumentar"><i class="bi bi-caret-up-fill"></i></button><button data-dec="${r.id}" aria-label="Diminuir"><i class="bi bi-caret-down-fill"></i></button></span></div>
-            <span class="small text-secondary">a lista pede ${ROWS_Q[r.id]}</span>
+            <div class="qty-k"><span class="v">${qv}</span><span class="arr"><button ${qa} aria-label="Aumentar"><i class="bi bi-caret-up-fill"></i></button><button ${qd} aria-label="Diminuir"><i class="bi bi-caret-down-fill"></i></button></span></div>
+            <span class="small text-secondary">a lista pede ${r.qty}${outros?` · ${outros} de outras opções já no kit`:''}</span>
           </div>
-          ${on?`<div class="pd-chosen"><i class="bi bi-check-circle-fill"></i>Escolhido para sua lista</div>
-                <div class="text-center mt-2"><button class="rm m-0" data-rm="${r.id}">remover do kit</button></div>`
+          ${on?`<div class="pd-chosen"><i class="bi bi-check-circle-fill"></i>No seu kit</div>
+                <div class="text-center mt-2"><button class="rm m-0" data-rm="${r.id}" data-opt="${o.id}">remover do kit</button></div>`
               :`<button class="btn btn-k btn-k-block" data-pbuy="${r.id}" data-opt="${o.id}">Comprar</button>`}
         </div>
         <a class="link-k d-inline-block mt-3" href="${o.url}" target="_blank" rel="noopener">Ver página completa no site <i class="bi bi-box-arrow-up-right"></i></a>
@@ -735,8 +737,8 @@ function detailHTML(r,o){
     ${paras.length?`<div class="pd-sec"><h3>Descrição</h3>${paras.map(p=>`<p>${p}</p>`).join('')}</div>`:''}
     ${o.specs&&o.specs.length?`<div class="pd-sec"><h3>Especificações</h3><ul>${o.specs.map(s=>`<li>${s}</li>`).join('')}</ul></div>`:''}
     <div class="pd-foot mt-3">
-      <div class="flex-grow-1"><div class="small text-secondary">${r.qty}x</div><div class="fw-bold" style="color:var(--k-blue)">${R(o.price*r.qty)}</div></div>
-      ${on?`<span class="pd-chosen px-3"><i class="bi bi-check-circle-fill"></i>Escolhido</span>`:`<button class="btn btn-k" data-pbuy="${r.id}" data-opt="${o.id}">Comprar</button>`}
+      <div class="flex-grow-1"><div class="small text-secondary">${qv}x</div><div class="fw-bold" style="color:var(--k-blue)">${R(o.price*qv)}</div></div>
+      ${on?`<span class="pd-chosen px-3"><i class="bi bi-check-circle-fill"></i>No kit</span>`:`<button class="btn btn-k" data-pbuy="${r.id}" data-opt="${o.id}">Comprar</button>`}
     </div>`;
 }
 const ROWS_Q = {};
@@ -752,7 +754,7 @@ function paintDetail(){
   }
 }
 function openDetail(rowId, optId, where, list){
-  DET = {row:rowId, list, idx:Math.max(0,list.indexOf(optId)), where};
+  DET = {row:rowId, list, idx:Math.max(0,list.indexOf(optId)), where, q: kitQty(byId(rowId)) ? 1 : byId(rowId).qty};
   if(where==='panel'){ PNL.scroll = pnlBody.scrollTop; pnlGridView.classList.add('d-none'); pnlDetailView.classList.remove('d-none'); }
   paintDetail();
   if(where==='modal') bootstrap.Modal.getOrCreateInstance(pdModal).show();
@@ -782,15 +784,15 @@ function chipsGroup(label, key, values, r){
 }
 function renderPanel(){
   const r = byId(PNL.row);
-  pnlTitle.innerHTML = `“${r.q}” <span class="fw-normal text-secondary small ms-1">· quantidade ${r.qty}</span>`;
+  pnlTitle.innerHTML = `“${r.q}” <span class="fw-normal text-secondary small ms-1">· a lista pede ${r.qty} · pode escolher mais de uma opção</span>`;
   const tipos = [...new Set(r.opts.map(o=>o.tipo))], marcas = [...new Set(r.opts.map(o=>o.marca))].sort((a,b)=>a==='Outras'?1:b==='Outras'?-1:a.localeCompare(b));
   const anyF = PNL.q||PNL.marca.size||PNL.preco||PNL.tipo;
   const nf = PNL.marca.size+(PNL.preco?1:0)+(PNL.tipo?1:0);
   pnlFbtn.innerHTML = `<i class="bi bi-sliders me-1"></i>Filtros${nf?` (${nf})`:''}`;
   pnlChips.innerHTML = chipsGroup('Tipo','tipo',tipos,r) + chipsGroup('Marca','marca',marcas,r) + chipsGroup('Preço','preco',PRECOS.map(p=>p[0]),r);
 
-  const all = pnlSorted(r, pnlFiltered(r)), sel = selOpt(r);
-  const rest = sel && all.includes(sel) ? [sel, ...all.filter(o=>o!==sel)] : all;
+  const all = pnlSorted(r, pnlFiltered(r)), pk = picked(r).map(p=>p[0]);
+  const rest = [...pk.filter(o=>all.includes(o)), ...all.filter(o=>!pk.includes(o))];
   const m = rest.filter(o=>o.g==='m'), out = rest.filter(o=>o.g!=='m');
   let left = PNL.limit;
   const take = arr => { const t = arr.slice(0,Math.max(0,left)); left -= t.length; return t; };
@@ -805,8 +807,9 @@ function renderPanel(){
     ${oo.length?`<div class="pnl-grp"><span class="tag tag-alt">Outras opções</span><span class="small text-secondary fw-normal">${out.length} · não batem exatamente com a lista</span></div>${grid(oo)}`:''}
     ${!all.length?'<div class="pnl-empty"><i class="bi bi-search fs-2 d-block mb-2"></i>Nenhum produto com esses filtros.<br><button class="link-k mt-2" data-clearf>Limpar filtros</button></div>':''}
     ${shown<rest.length?`<div class="text-center mt-4"><button class="btn btn-k2" data-loadmore>Mostrar mais ${Math.min(12,rest.length-shown)} de ${rest.length-shown}</button></div>`:''}`;
-  pnlFoot.innerHTML = sel
-    ? `<span class="pnl-pin t d-none d-md-grid" style="width:44px;height:44px;border:0;padding:0">${pic(sel)}</span><div class="flex-grow-1" style="min-width:0"><div class="small text-secondary">Escolhido · ${r.qty}x</div><div class="nm">${sel.name}</div></div><b style="color:var(--k-blue)" class="text-nowrap">${R(sel.price*r.qty)}</b><button class="btn btn-k" data-bs-dismiss="offcanvas">Concluir</button>`
+  const pv = picked(r).reduce((t,[o,q])=>t+o.price*q,0), n = pk.length, u = kitQty(r);
+  pnlFoot.innerHTML = n
+    ? `<div class="flex-grow-1" style="min-width:0"><div class="small text-secondary">No kit para este item</div><div class="nm">${n===1?pk[0].name:`${n} produtos diferentes`} · ${u} ${u===1?'unidade':'unidades'}</div></div><b style="color:var(--k-blue)" class="text-nowrap">${R(pv)}</b><button class="btn btn-k" data-bs-dismiss="offcanvas">Concluir</button>`
     : `<div class="flex-grow-1 small text-secondary">Nenhum produto escolhido para este item.</div><button class="btn btn-k2" data-bs-dismiss="offcanvas">Fechar</button>`;
 }
 function openMore(r){
@@ -821,14 +824,17 @@ function refreshAll(){
   if(PNL && morePanel.classList.contains('show')){ if(pnlDetailView.classList.contains('d-none')) renderPanel(); else { paintDetail(); renderPanel(); } }
   if(DET && DET.where==='modal' && pdModal.classList.contains('show')) paintDetail();
 }
-function choose(rowId,optId){ byId(rowId).sel = optId; refreshAll(); }
+function choose(rowId,optId,q){ const r=byId(rowId);
+  const add = q ?? (r.picks[optId] ? 1 : (kitQty(r) ? 1 : r.qty));
+  if(!r.picks[optId]){ r.order = r.order.filter(x=>x!==optId).concat(optId); }
+  r.picks[optId] = (r.picks[optId]||0) + add; refreshAll(); }
 
 function renderRows(){
   rows.innerHTML = ROWS.map(r=>`
     <div class="item-row">
       <div class="item-head">
-        <div class="flex-grow-1"><div class="label-muted">Na sua lista</div><div class="q">“${r.q}”</div></div>
-        <div class="label-k">Quantidade: ${r.qty}</div>
+        <div class="flex-grow-1"><div class="label-muted">Na sua lista</div><div class="q">“${r.q}”</div><div class="small text-secondary">Pode escolher mais de uma opção</div></div>
+        <div class="text-end"><div class="label-k">A lista pede: ${r.qty}</div><div class="label-muted mt-1" style="color:${kitQty(r)>=r.qty?'var(--k-green)':'var(--k-muted)'}">No kit: ${kitQty(r)}</div></div>
       </div>
       <div class="item-body"><div class="rail">
         ${visible(r).map(o=>card(r,o)).join('')}
@@ -837,26 +843,26 @@ function renderRows(){
     </div>`).join('');
 }
 function renderKit(){
-  const chosen = ROWS.filter(r=>r.sel);
-  kitList.innerHTML = chosen.length ? chosen.map(r=>{const o=selOpt(r);return `
+  const chosen = ROWS.flatMap(r=>picked(r).map(([o,q])=>({r,o,q})));
+  kitList.innerHTML = chosen.length ? chosen.map(({r,o,q})=>`
     <div class="kit-item">
       <div class="t">${pic(o)}</div>
       <div class="flex-grow-1" style="min-width:0">
         <div class="nm" title="${o.name}">${o.name}</div>
         <div class="from">Na lista: “${r.q}”</div>
         <div class="d-flex align-items-center">
-          <div class="qty-k"><span class="v">${r.qty}</span><span class="arr"><button data-inc="${r.id}" aria-label="Aumentar"><i class="bi bi-caret-up-fill"></i></button><button data-dec="${r.id}" aria-label="Diminuir"><i class="bi bi-caret-down-fill"></i></button></span></div>
-          <button class="rm" data-rm="${r.id}">remover</button>
+          <div class="qty-k"><span class="v">${q}</span><span class="arr"><button data-inc="${r.id}" data-opt="${o.id}" aria-label="Aumentar"><i class="bi bi-caret-up-fill"></i></button><button data-dec="${r.id}" data-opt="${o.id}" aria-label="Diminuir"><i class="bi bi-caret-down-fill"></i></button></span></div>
+          <button class="rm" data-rm="${r.id}" data-opt="${o.id}">remover</button>
         </div>
       </div>
       <div class="ps-1">
-        ${o.old?`<div class="old">De: ${R(o.old*r.qty)}</div>`:''}
-        <div class="sub">${R(o.price*r.qty)}</div>
+        ${o.old?`<div class="old">De: ${R(o.old*q)}</div>`:''}
+        <div class="sub">${R(o.price*q)}</div>
       </div>
-    </div>`}).join('') : '<div class="kit-none">Nenhum produto escolhido ainda.</div>';
+    </div>`).join('') : '<div class="kit-none">Nenhum produto escolhido ainda.</div>';
 
-  const sub = chosen.reduce((s,r)=>s+selOpt(r).price*r.qty,0);
-  const units = chosen.reduce((s,r)=>s+r.qty,0);
+  const sub = chosen.reduce((s,x)=>s+x.o.price*x.q,0);
+  const units = chosen.reduce((s,x)=>s+x.q,0);
   const gratis = sub>=FRETE_GRATIS;
   dv2p.textContent = gratis?'Grátis':'R$ 11,00'; dv2.value = gratis?0:11;
   const frete = +document.querySelector('input[name=dv]:checked').value;
@@ -870,7 +876,7 @@ function renderKit(){
   freteTxt.innerHTML = gratis ? 'Seu kit já tem FRETE GRÁTIS' : `Faltam ${R(FRETE_GRATIS-sub)} para você ganhar FRETE GRÁTIS`;
 }
 function addToCart(){
-  const u = ROWS.filter(r=>r.sel).reduce((s,r)=>s+r.qty,0); if(!u) return;
+  const u = ROWS.reduce((s,r)=>s+kitQty(r),0); if(!u) return;
   toastT.textContent = `${u} produtos adicionados ao carrinho`;
   toast.classList.add('on'); setTimeout(()=>toast.classList.remove('on'),4500);
   setSteps(3);
@@ -881,10 +887,11 @@ document.addEventListener('click',e=>{
   const go = e.target.closest('[data-go]');
   if(go){ e.preventDefault(); location.hash = go.dataset.go; return; }
   const buy = e.target.closest('[data-buy],[data-pbuy]');
-  if(buy){ const rid=buy.dataset.buy||buy.dataset.pbuy; choose(rid, buy.dataset.opt);
+  if(buy){ const rid=buy.dataset.buy||buy.dataset.pbuy; choose(rid, buy.dataset.opt, buy.dataset.pbuy ? DET.q : undefined);
     if(buy.dataset.pbuy && DET && DET.where==='modal') bootstrap.Modal.getInstance(pdModal)?.hide();
     return; }
-  const nav = e.target.closest('[data-pdnav]'); if(nav){ DET.idx += +nav.dataset.pdnav; paintDetail(); return; }
+  const nav = e.target.closest('[data-pdnav]'); if(nav){ DET.idx += +nav.dataset.pdnav; DET.q = kitQty(byId(DET.row)) ? 1 : byId(DET.row).qty; paintDetail(); return; }
+  const dq = e.target.closest('[data-dq]'); if(dq){ DET.q = Math.max(1, DET.q + +dq.dataset.dq); paintDetail(); return; }
   const foto = e.target.closest('[data-foto]');
   if(foto){ const o=optById(byId(DET.row),DET.list[DET.idx]); foto.parentElement.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b===foto));
     foto.closest('.row').querySelector('.pd-main').innerHTML = pic({...o,img:o.fotos[+foto.dataset.foto]}); return; }
@@ -902,9 +909,9 @@ document.addEventListener('click',e=>{
     return; }
   const m = e.target.closest('[data-more]'); if(m){ openMore(byId(m.dataset.more)); return; }
   const q = e.target.closest('[data-inc],[data-dec]');
-  if(q){ const r=byId(q.dataset.inc||q.dataset.dec); r.qty=Math.max(1,r.qty+(q.dataset.inc?1:-1)); refreshAll(); return; }
-  const rm = e.target.closest('[data-rm]'); if(rm){ byId(rm.dataset.rm).sel=null; refreshAll(); return; }
-  if(e.target.closest('#clearAll')){ ROWS.forEach(r=>r.sel=null); renderRows(); renderKit(); return; }
+  if(q){ const r=byId(q.dataset.inc||q.dataset.dec), id=q.dataset.opt; if(id && r.picks[id]) r.picks[id]=Math.max(1,r.picks[id]+(q.dataset.inc?1:-1)); refreshAll(); return; }
+  const rm = e.target.closest('[data-rm]'); if(rm){ delete byId(rm.dataset.rm).picks[rm.dataset.opt]; refreshAll(); return; }
+  if(e.target.closest('#clearAll')){ ROWS.forEach(r=>{r.picks={}; r.order=[];}); refreshAll(); return; }
   if(e.target.closest('#addCart,[data-add]')) addToCart();
 });
 document.addEventListener('change',e=>{ if(e.target.name==='dv') renderKit(); });
